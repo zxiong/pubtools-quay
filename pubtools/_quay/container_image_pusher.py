@@ -2,6 +2,7 @@ import functools
 import logging
 
 import requests
+from concurrent.futures import ThreadPoolExecutor
 
 from .exceptions import (
     ManifestTypeError,
@@ -290,7 +291,7 @@ class ContainerImagePusher:
         images are not supported. In case of multiarch images, manifest list merging is performed if
         destination image contains more architectures than source.
         """
-        for item in self.push_items:
+        def push_container_image(item):
             try:
                 source_ml = self.src_quay_client.get_manifest(
                     item.metadata["pull_url"], media_type=QuayClient.MANIFEST_LIST_TYPE
@@ -307,9 +308,9 @@ class ContainerImagePusher:
             # this metadata field indicates a source image
             sources_for_nvr = (
                 item.metadata["build"]
-                .get("extra", {})
-                .get("image", {})
-                .get("sources_for_nvr", None)
+                    .get("extra", {})
+                    .get("image", {})
+                    .get("sources_for_nvr", None)
             )
             v1 = False
             if not sources_for_nvr and not source_ml:
@@ -323,3 +324,7 @@ class ContainerImagePusher:
             # Multiarch images
             else:
                 self.copy_multiarch_push_item(item, source_ml)
+
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            for item in self.push_items:
+                pool.submit(push_container_image, item)
