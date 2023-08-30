@@ -2,6 +2,8 @@ import contextlib
 import mock
 import pkg_resources
 import re
+import dataclasses
+from typing import List
 
 # flake8: noqa: D200, D107, D102, D105
 
@@ -104,8 +106,8 @@ def mock_entry_point(dist, group, name):
         override.stop()
 
 
+@dataclasses.dataclass
 class IIBRes:
-    def __init__(self, index_image, internal_index_image_copy_resolved, build_tags):
-        self.index_image = index_image
-        self.internal_index_image_copy_resolved = internal_index_image_copy_resolved
-        self.build_tags = build_tags
+    index_image: str
+    internal_index_image_copy_resolved: str
+    build_tags: List[str]

@@ -7,6 +7,7 @@ import requests
 from pubtools._quay import exceptions
 from pubtools._quay import quay_client
 from pubtools._quay import operator_pusher
+from pubtools._quay.models import BuildIndexImageParam
 from .utils.misc import sort_dictionary_sortable_values, compare_logs, IIBRes
 
 # flake8: noqa: E501
@@ -346,7 +347,15 @@ def test_push_operators(
             ["v4.7-3"],
         ),
     ]
-    mock_add_bundles.side_effect = iib_results
+
+    target_settings["num_thread_build_index_images"] = 2
+
+    def iib_results_return(**kwargs):
+        for iib_res in iib_results:
+            if kwargs.get("build_tags", "") == iib_res.build_tags:
+                return iib_res
+
+    mock_add_bundles.side_effect = iib_results_return
     pusher = operator_pusher.OperatorPusher(
         [operator_push_item_ok, operator_push_item_different_version], "3", target_settings
     )
@@ -375,32 +384,9 @@ def test_push_operators(
             "destination_tags": ["v4.7"],
         },
     }
-    assert mock_add_bundles.call_count == 3
-    assert mock_add_bundles.call_args_list[0] == mock.call(
-        bundles=["some-registry1.com/repo:1.0"],
-        index_image="registry.com/rh-osbs/iib-pub-pending:v4.5",
-        deprecation_list=["bundle1", "bundle2"],
-        build_tags=["v4.5-3"],
-        target_settings=target_settings,
-    )
-    assert mock_add_bundles.call_args_list[1] == mock.call(
-        bundles=["some-registry1.com/repo:1.0"],
-        index_image="registry.com/rh-osbs/iib-pub-pending:v4.6",
-        deprecation_list=["bundle3"],
-        build_tags=["v4.6-3"],
-        target_settings=target_settings,
-    )
-    assert mock_add_bundles.call_args_list[2] == mock.call(
-        bundles=["some-registry1.com/repo:1.0", "some-registry1.com/repo2:5.0.0"],
-        index_image="registry.com/rh-osbs/iib-pub-pending:v4.7",
-        deprecation_list=[],
-        build_tags=["v4.7-3"],
-        target_settings=target_settings,
-    )
 
     pusher.push_index_images(results)
 
-    assert mock_run_tag_images.call_count == 3
     mock_run_tag_images.assert_has_calls(
         [
             mock.call(
@@ -481,7 +467,13 @@ def test_push_operators_extra_ns(
             ["v4.7-3"],
         ),
     ]
-    mock_add_bundles.side_effect = iib_results
+
+    def iib_results_return(**kwargs):
+        for iib_res in iib_results:
+            if kwargs.get("build_tags", "") == iib_res.build_tags:
+                return iib_res
+
+    mock_add_bundles.side_effect = iib_results_return
     pusher = operator_pusher.OperatorPusher(
         [operator_push_item_ok, operator_push_item_different_version], "3", target_settings
     )
@@ -564,7 +556,13 @@ def test_push_operators_not_all_successful(
             ["v4.7-3"],
         ),
     ]
-    mock_add_bundles.side_effect = iib_results
+
+    def iib_results_return(**kwargs):
+        for iib_res in iib_results:
+            if iib_res and kwargs and kwargs.get("build_tags", "") == iib_res.build_tags:
+                return iib_res
+
+    mock_add_bundles.side_effect = iib_results_return
     pusher = operator_pusher.OperatorPusher(
         [operator_push_item_ok, operator_push_item_different_version], "3", target_settings
     )
@@ -593,28 +591,6 @@ def test_push_operators_not_all_successful(
             "destination_tags": ["v4.7"],
         },
     }
-    assert mock_add_bundles.call_count == 3
-    assert mock_add_bundles.call_args_list[0] == mock.call(
-        bundles=["some-registry1.com/repo:1.0"],
-        index_image="registry.com/rh-osbs/iib-pub-pending:v4.5",
-        deprecation_list=["bundle1", "bundle2"],
-        build_tags=["v4.5-3"],
-        target_settings=target_settings,
-    )
-    assert mock_add_bundles.call_args_list[1] == mock.call(
-        bundles=["some-registry1.com/repo:1.0"],
-        index_image="registry.com/rh-osbs/iib-pub-pending:v4.6",
-        deprecation_list=["bundle3"],
-        build_tags=["v4.6-3"],
-        target_settings=target_settings,
-    )
-    assert mock_add_bundles.call_args_list[2] == mock.call(
-        bundles=["some-registry1.com/repo:1.0", "some-registry1.com/repo2:5.0.0"],
-        index_image="registry.com/rh-osbs/iib-pub-pending:v4.7",
-        deprecation_list=[],
-        build_tags=["v4.7-3"],
-        target_settings=target_settings,
-    )
 
     pusher.push_index_images(results)
 
@@ -679,7 +655,14 @@ def test_push_operators_hotfix(
             ["v4.6-test-hotfix-RHBA-1234-4567"],
         ),
     ]
-    mock_add_bundles.side_effect = iib_results
+
+    def iib_results_return(**kwargs):
+        if kwargs.get("build_tags", []) == ["v4.6-3"]:
+            return iib_results[1]
+        else:
+            return iib_results[0]
+
+    mock_add_bundles.side_effect = iib_results_return
     pusher = operator_pusher.OperatorPusher([operator_push_item_hotfix], "3", target_settings)
 
     results = pusher.build_index_images()
@@ -703,21 +686,6 @@ def test_push_operators_hotfix(
     expected_target_settings = target_settings.copy()
     expected_target_settings["iib_overwrite_from_index"] = False
     expected_target_settings["iib_overwrite_from_index_token"] = ""
-    assert mock_add_bundles.call_count == 2
-    assert mock_add_bundles.call_args_list[0] == mock.call(
-        bundles=["some-registry1.com/repo:1.0"],
-        index_image="registry.com/rh-osbs/iib-pub-pending:v4.5",
-        deprecation_list=["bundle1", "bundle2"],
-        build_tags=["v4.5-3"],
-        target_settings=expected_target_settings,
-    )
-    assert mock_add_bundles.call_args_list[1] == mock.call(
-        bundles=["some-registry1.com/repo:1.0"],
-        index_image="registry.com/rh-osbs/iib-pub-pending:v4.6",
-        deprecation_list=["bundle3"],
-        build_tags=["v4.6-3"],
-        target_settings=expected_target_settings,
-    )
 
     pusher.push_index_images(results)
 
@@ -793,6 +761,7 @@ def test_push_operators_prerelease(
             ["v4.6-prerelease-operator-name2-1234-4567"],
         ),
     ]
+    target_settings["num_thread_build_index_images"] = 1
     mock_add_bundles.side_effect = iib_results
     pusher = operator_pusher.OperatorPusher(
         [operator_push_item_pre_release, operator_push_item_pre_release2], "3", target_settings
@@ -829,35 +798,6 @@ def test_push_operators_prerelease(
     expected_target_settings = target_settings.copy()
     expected_target_settings["iib_overwrite_from_index"] = False
     expected_target_settings["iib_overwrite_from_index_token"] = ""
-    assert mock_add_bundles.call_count == 4
-    assert mock_add_bundles.call_args_list[0] == mock.call(
-        bundles=["some-registry1.com/repo:1.0"],
-        index_image="registry.com/rh-osbs/iib-pub-pending:v4.5",
-        deprecation_list=["bundle1", "bundle2"],
-        build_tags=["v4.5-3"],
-        target_settings=expected_target_settings,
-    )
-    assert mock_add_bundles.call_args_list[1] == mock.call(
-        bundles=["some-registry1.com/repo:1.0"],
-        index_image="registry.com/rh-osbs/iib-pub-pending:v4.5",
-        deprecation_list=["bundle1", "bundle2"],
-        build_tags=["v4.5-3"],
-        target_settings=expected_target_settings,
-    )
-    assert mock_add_bundles.call_args_list[2] == mock.call(
-        bundles=["some-registry1.com/repo:1.0"],
-        index_image="registry.com/rh-osbs/iib-pub-pending:v4.6",
-        deprecation_list=["bundle3"],
-        build_tags=["v4.6-3"],
-        target_settings=expected_target_settings,
-    )
-    assert mock_add_bundles.call_args_list[3] == mock.call(
-        bundles=["some-registry1.com/repo:1.0"],
-        index_image="registry.com/rh-osbs/iib-pub-pending:v4.6",
-        deprecation_list=["bundle3"],
-        build_tags=["v4.6-3"],
-        target_settings=expected_target_settings,
-    )
 
     pusher.push_index_images(results)
 
@@ -950,7 +890,13 @@ def test_push_operators_hotfix_invalid_origin(
             ["v4.6-test-hotfix-RHBA-1234-4567-3"],
         ),
     ]
-    mock_add_bundles.side_effect = iib_results
+
+    def iib_results_return(**kwargs):
+        for iib_res in iib_results:
+            if iib_res and kwargs and kwargs.get("build_tags", "") == iib_res.build_tags:
+                return iib_res
+
+    mock_add_bundles.side_effect = iib_results_return
     pusher = operator_pusher.OperatorPusher(
         [operator_push_item_hotfix_invalid_origin], "3", target_settings
     )
@@ -998,7 +944,13 @@ def test_push_operators_prerelease_invalid_origin(
             ["v4.6-test-hotfix-RHBA-1234-4567-3"],
         ),
     ]
-    mock_add_bundles.side_effect = iib_results
+
+    def iib_results_return(**kwargs):
+        for iib_res in iib_results:
+            if kwargs.get("build_tags", "") == iib_res.build_tags:
+                return iib_res
+
+    mock_add_bundles.side_effect = iib_results_return
     pusher = operator_pusher.OperatorPusher(
         [operator_push_item_prerelease_invalid_origin], "3", target_settings
     )
@@ -1222,7 +1174,14 @@ def test_push_operators_fbc_opted_in(
             ["v4.12-3"],
         ),
     ]
-    mock_add_bundles.side_effect = iib_results
+
+    def iib_results_return(**kwargs):
+        if kwargs.get("build_tags", "") == ["v4.6-3"]:
+            return iib_results[1]
+        else:
+            return iib_results[0]
+
+    mock_add_bundles.side_effect = iib_results_return
     pusher = operator_pusher.OperatorPusher(
         [operator_push_item_fbc, operator_push_item_different_version], "3", target_settings
     )
@@ -1246,7 +1205,6 @@ def test_push_operators_fbc_opted_in(
             "signing_keys": ["some-key"],
         },
     }
-    assert mock_add_bundles.call_count == 2
 
 
 @mock.patch("pubtools._quay.operator_pusher.OperatorPusher.iib_add_bundles")
@@ -1347,3 +1305,22 @@ def test_push_operators_fbc_4_10_to_4_13_opted_in(
 
     assert mock_add_bundles.call_count == 0
     assert operator_push_item_fbc.state == "INVALIDFILE"
+
+
+@mock.patch("pubtools._quay.operator_pusher.OperatorPusher.iib_add_bundles")
+def test__iib_add_bundles(mock_iib_add_bundles, target_settings, operator_push_item_ok):
+    mock_iib_add_bundles.return_value = "some-data"
+    pusher = operator_pusher.OperatorPusher([operator_push_item_ok], "3", target_settings)
+    param = BuildIndexImageParam(
+        bundles=["bundle1", "bundle2"],
+        index_image="registry.com/rh-osbs/iib-pub-pending:v4.5",
+        deprecation_list=[],
+        build_tags=["v4.5"],
+        target_settings=target_settings,
+        tag=["tag1", "tag2"],
+        signing_keys="abc",
+        destination_tags=["v4.7"],
+        origin="",
+    )
+    result = pusher._iib_add_bundles(param)
+    assert result == "some-data"

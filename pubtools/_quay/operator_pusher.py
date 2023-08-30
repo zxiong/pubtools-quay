@@ -3,7 +3,6 @@ import logging
 import re
 import yaml
 from concurrent import futures
-from concurrent.futures.thread import ThreadPoolExecutor
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -590,6 +589,24 @@ class OperatorPusher:
                 item_groups[version]["items"].append(item)
         return item_groups
 
+    @classmethod
+    def _iib_add_bundles(cls, build_index_image_param):
+        """Wrap the function iib_add_bundles with parameter BuildIndexImageParam.
+
+        Args:
+            build_index_image_param ([BuildIndexImageParam]):
+                A list of parameter data for building index images and required by iib_results.
+        Returns (dict):
+            Build details provided by IIB.
+        """
+        return cls.iib_add_bundles(
+            bundles=build_index_image_param.bundles,
+            index_image=build_index_image_param.index_image,
+            deprecation_list=build_index_image_param.deprecation_list,
+            build_tags=build_index_image_param.build_tags,
+            target_settings=build_index_image_param.target_settings,
+        )
+
     @log_step("Build index images")
     def build_index_images(self):
         """
@@ -685,16 +702,10 @@ class OperatorPusher:
 
         num_thread_build_index_images = self.target_settings.get("num_thread_build_index_images", 5)
 
-        with ThreadPoolExecutor(max_workers=num_thread_build_index_images) as executor:
+        with futures.ProcessPoolExecutor(max_workers=num_thread_build_index_images) as executor:
             future_results = {
                 executor.submit(
-                    lambda param: self.iib_add_bundles(
-                        bundles=param.bundles,
-                        index_image=param.index_image,
-                        deprecation_list=param.deprecation_list,
-                        build_tags=param.build_tags,
-                        target_settings=param.target_settings,
-                    ),
+                    self._iib_add_bundles,
                     param,
                 ): param
                 for param in build_index_image_params
